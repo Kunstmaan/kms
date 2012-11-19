@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# Usage: kms installcatchall
+# Summary: [EXPERIMENTAL] Installs a catchall mailserver for use on a staging
+# Help: Installs a catchall mailserver for use on a staging
+
+echo "this will install a catchall server"
+echo "do not run this on a live machine"
+MYFOLDER=$(dirname $0)
+SRCFOLDER=$MYFOLDER/../tools/
+CONFIGXML=$SRCFOLDER/config.xml
+PWSETTER=$SRCFOLDER/passwdnonint
+
+echo $CONFIGXML
+
+function xmlsel {
+        xmlstarlet sel -t -v "$1" $CONFIGXML 2>/dev/null
+}
+
+#if [ `xmlsel "/config/var[@name='config.develmode']/@value"` == "true" ]; then
+#   echo OKAY
+#else
+#   echo "NOT A DEVEL SERVER (config.develmode) PLEASE CHANGE"
+#   exit 1
+#fi
+
+if [ -f /etc/postfix/virtual ]; then
+    echo "/etc/postfix/virtual already exists, please either do things manually either remove it"
+    exit 1
+fi
+
+apt-get install postfix postfix-pcre expect || exit 1
+
+if [ ! -f /etc/postfix/main.cf ]; then
+    echo "no postfix config found, please configure postfix first"
+    echo "please choose internet site with smarthost profile in following questions"
+    echo "hit a key to start configuration"
+    read foo
+    dpkg-reconfigure postfix
+fi
+
+
+if cat /etc/postfix/main.cf | grep reject_ 2>/dev/null; then
+    echo "antispam configuration found in mailserver config"
+    echo "catchall server will not work if these rules are active"
+    echo "reconfiguring postfix to remove them"
+    echo "please choose internet site with smarthost profile in following questions"
+    echo "hit a key to start configuration"
+    read foo
+    dpkg-reconfigure postfix
+fi
+
+if [ ! -f /etc/mailname ]; then
+    hostname -f > /etc/mailname
+fi
+
+cat << END > /etc/postfix/virtual
+/.*@.*/  allemail
+END
+
+id allemail 2>/dev/null || useradd allemail -m
+
+function emit_maincf {
+    cat /etc/postfix/main.cf | egrep -v ^relayhost | egrep -v ^mynetworks | egrep -v ^inet_interfaces
+    echo "relayhost = invalid_smtp_server_that_cannot_send_mails"
+    echo "mynetworks = 0.0.0.0/0"
+    echo "virtual_maps = pcre:/etc/postfix/virtual"
+    echo "home_mailbox = Maildir/"
+    echo "inet_interfaces = all"
+}
+
+emit_maincf > /tmp/main.cf
+mv /tmp/main.cf /etc/postfix
+/etc/init.d/postfix restart
+
+
+yes | apt-get install dovecot-imapd || exit 1
+
+function emit_dovecotcf {
+    cat /etc/dovecot/dovecot.conf  | sed -e 's|^\#mail_location.*|mail_location = maildir:~/Maildir|' | sed -e 's/^\#disable_plaintext_auth.*/disable_plaintext_auth = no/'
+}
+
+emit_dovecotcf > /tmp/dovecot.conf
+mv /tmp/dovecot.conf /etc/dovecot
+
+/etc/init.d/dovecot restart
+
+expect $PWSETTER allemail allemail
