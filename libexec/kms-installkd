@@ -1,0 +1,305 @@
+#!/usr/bin/env bash
+# Usage: kms installkd [installbase] [mysqlrootpassword] [newrelickey] [proxyserver]
+# Summary: [EXPERIMENTAL] Installs a kDeploy server/development machine on Ubuntu
+# Help: Installs a kDeploy server/development machine on Ubuntu
+#
+#       Example for the vagrant box: kms installkd /opt/kDeploy vagrant
+
+
+export DEBIAN_FRONTEND=noninteractive
+export INSTALLBASE=$1
+export MYSQLROOTPASSWD=$2
+export NEWRELICKEY=$3
+export PROXY=$4
+
+checkInstalled(){
+    LIST=""
+    for PACKAGE in $@; do
+        dpkg -l ${PACKAGE} 2> /dev/null | grep '^i' &> /dev/null
+        result=$?
+        if [[ $result != 0 ]] ; then
+            LIST="$LIST $PACKAGE"
+        fi
+    done
+    yes | apt-get -y  install $LIST
+}
+
+checkKeyAdded(){
+    apt-key list | grep ${1} > /dev/null
+    result=$?
+    if [[ $result != 0 ]]; then
+        apt-key adv --keyserver ${2} --recv-keys ${1}
+    fi
+}
+
+checkRepoInstalled(){
+        if [[ "$3" == "true" ]]; then
+            echo "$2" > /etc/apt/sources.list.d/$1.list
+        else
+            add-apt-repository -y "${2}"
+        fi
+}
+
+echo "##### Making sure everything is up to date"
+
+sed 's@us.archive.ubuntu.com@be.archive.ubuntu.com@' -i /etc/apt/sources.list
+if `wget uranus.kunstmaan.be:3142/acng-report.html --timeout 1 --tries=1 -O - &> /dev/null` ; then
+    value='Acquire::http { Proxy "http://uranus.kunstmaan.be:3142"; };'
+    echo $value > /etc/apt/apt.conf.d/01proxy
+fi
+
+yes | apt-get -y  update
+yes | apt-get -y  install python-software-properties software-properties-common
+yes | apt-get -y  -o 'DPkg::Options::=--force-confold' dist-upgrade
+
+checkKeyAdded '548C16BF' 'hkp://subkeys.pgp.net'
+checkRepoInstalled 'newrelic' 'deb http://apt.newrelic.com/debian/ newrelic non-free' true
+checkKeyAdded 'CD2EFD2A' 'hkp://keys.gnupg.net'
+checkRepoInstalled 'percona' 'deb http://repo.percona.com/apt precise main' true
+checkRepoInstalled 'kdeploy' 'ppa:kunstmaan/kdeploy'
+
+yes | apt-get  -y update
+yes | apt-get -y  -o 'DPkg::Options::=--force-confold' dist-upgrade
+apt-get  autoclean
+apt-get  clean
+
+echo "##### Getting compilers"
+
+checkInstalled build-essential
+
+echo "##### Setting up ACL and other fstab performance fixes"
+
+checkInstalled acl
+
+cat /etc/fstab | grep acl > /dev/null
+result=$?
+if [[ $result != 0 ]]; then
+    cat /etc/fstab | grep -v root > /etc/fstab.tmp
+    cat /etc/fstab | grep root | sed "s/remount-ro/remount-ro,acl,noatime,nodiratime/" >> /etc/fstab.tmp
+    mv /etc/fstab.tmp /etc/fstab
+fi
+cat /etc/fstab | grep tmpfs > /dev/null
+result=$?
+if [[ $result != 0 ]]; then
+    echo "tmpfs /tmp tmpfs defaults,nosuid,noatime,nodiratime 0 0" >> /etc/fstab
+fi
+
+mount -a
+mount -o remount /
+
+echo "##### Create hosting folders"
+
+mkdir -p /home/projects
+mkdir -p /home/backupped-projects
+mkdir -p /etc/apache2/conf/projects.d
+mkdir -p /etc/apache2/logs
+mkdir -p /opt/nowebsite
+mkdir -p /etc/php5/fpm/pool.d
+
+echo "##### Configuring the scheduler..."
+
+if [ -f /etc/init.d/ondemand ]; then
+    sed -i 's/\([^/]\)ondemand/\1performance/g' /etc/init.d/ondemand
+    /etc/init.d/ondemand start
+fi
+
+echo "##### Add some services and settings based on the scalingphp ebook"
+
+checkInstalled nscd
+service nscd status | grep running > /dev/null
+result=$?
+if [[ $result == 1 ]]; then
+    service nscd start
+fi
+
+cat $INSTALLBASE/provisioning/etc/sysctl.d/50-tuning.conf > /etc/sysctl.d/50-tuning.conf
+sysctl -p
+
+ulimit -n 100000
+cat $INSTALLBASE/provisioning/etc/security/limits.conf > /etc/security/limits.conf
+
+echo noop > /sys/block/sda/queue/scheduler
+## TODO add this to rc.local
+
+echo "##### Installing apache"
+
+checkInstalled apache2 apache2-mpm-worker apache2-threaded-dev libapache2-mod-rpaf libapache2-mod-fastcgi libapache2-mod-jk
+
+checkApacheModuleLoaded(){
+    if [ ! -L /etc/apache2/mods-enabled/$1.load ]; then
+        a2enmod $1
+    fi
+}
+
+checkApacheModuleLoaded rewrite
+checkApacheModuleLoaded ssl
+
+if [ -L /etc/apache2/sites-enabled/000-default ]; then
+    a2dissite 000-default
+fi
+
+echo "##### Installing mysql"
+
+checkInstalled percona-server-server-5.5 percona-server-client-5.5 percona-toolkit python-mysqldb
+
+mysql -u root -e ";" 2> /dev/null
+result=$?
+if [[ $result == 0 ]]; then
+    mysql -uroot -e "UPDATE mysql.user SET Password = PASSWORD('$MYSQLROOTPASSWD') WHERE User = 'root'; DELETE FROM mysql.user WHERE User=''; DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1'); DROP DATABASE IF EXISTS test; FLUSH PRIVILEGES;"
+    cp $INSTALLBASE/provisioning/etc/mysql/tuning.cnf /etc/mysql/conf.d/
+fi
+
+echo "##### Configuring postgresql..."
+checkInstalled postgresql-9.1 python-psycopg2
+cp $INSTALLBASE/provisioning/etc/postgresql/pg_hba.conf /etc/postgresql/9.1/main/pg_hba.conf
+su postgres -c "psql -d template1 -c 'create user smlscript;'"
+su postgres -c "psql -d template1 -c \"alter user smlscript with password 'sml';\""
+su postgres -c "psql -d template1 -c \"GRANT SELECT ON pg_shadow TO smlscript;\""
+
+echo "##### Installing PHP"
+checkInstalled sysv-rc-conf php5-fpm php5-mysqlnd php5-mcrypt php-apc php5-imagick php5-cli php5-gd php5-memcached php5-curl php5-intl php5-dev php-pear build-essential libmagick++-dev
+
+checkPHPModuleLoaded(){
+    php -m | grep $1 > /dev/null
+    result=$?
+    if [[ $result != 0 ]]; then
+        yes | pecl install $2
+    fi
+}
+cat $INSTALLBASE/provisioning/etc/php5/conf.d/50-apc.ini > /etc/php5/conf.d/50-apc.ini
+cat $INSTALLBASE/provisioning/etc/php5/conf.d/99-kunstmaan.ini > /etc/php5/conf.d/99-kunstmaan.ini
+
+echo "##### Setting up FPM"
+
+checkApacheModuleLoaded actions
+checkApacheModuleLoaded fastcgi
+cp $INSTALLBASE/provisioning/etc/apache/fastcgi.conf /etc/apache2/mods-available/fastcgi.conf
+sysv-rc-conf --level 2345 php5-fpm on
+
+if [ ! -d "/vagrant" ]; then
+    echo "##### Configuring newrelic"
+    checkInstalled newrelic-sysmond newrelic-php5
+    nrsysmond-config --set license_key=$NEWRELICKEY
+    /etc/init.d/newrelic-sysmond start
+    export NR_INSTALL_SILENT=true
+    export NR_INSTALL_KEY=$NEWRELICKEY
+    newrelic-install install
+    /etc/init.d/newrelic-daemon restart
+fi
+
+echo "##### Setting up mod_jk"
+
+cp $INSTALLBASE/provisioning/etc/apache/jk.conf /etc/apache2/mods-enabled/jk.conf
+cp $INSTALLBASE/provisioning/etc/apache/namevirtualhosts /etc/apache2/conf/projects.d/namevirtualhosts
+cp $INSTALLBASE/provisioning/etc/apache/apache2.conf /etc/apache2/apache2.conf
+touch /etc/apache2/workers.properties
+
+echo "##### Configuring tomcat..."
+mkdir /etc/tomcat
+cp $INSTALLBASE/provisioning/etc/tomcat/setenv.sh /etc/tomcat/setenv.sh
+
+echo "##### Configuring GIT"
+
+checkInstalled git
+
+echo "##### Setting up Varnish"
+
+checkInstalled varnish
+cp $INSTALLBASE/provisioning/etc/varnish/default.vcl /etc/varnish/default.vcl
+
+
+echo "##### Generating locales"
+
+checkLocales(){
+    for LOCALE in $@; do
+        locale -a | grep $LOCALE &> /dev/null
+        result=$?
+        if [[ $result != 0 ]] ; then
+            locale-gen $1
+        fi
+    done
+}
+
+checkLocales nl_BE fr_BE en_GB es_ES nl_BE.utf8 fr_BE.utf8 en_GB.utf8 es_ES.utf8
+
+
+echo "##### Setting up ftpd"
+checkInstalled pure-ftpd
+echo "0" > /etc/pure-ftpd/conf/MinUID
+service pure-ftpd restart
+
+echo "##### Adding some custom development settings"
+cd /tmp/
+git clone https://github.com/roderik/dotfiles.git
+cd /tmp/dotfiles
+rsync --exclude ".git/" --exclude ".DS_Store" --exclude "bootstrap.sh" --exclude "Sublime Text 2" --exclude "README.md" -a . /root/
+if [ -d "/home/vagrant" ]; then
+    rsync --exclude ".git/" --exclude ".DS_Store" --exclude "bootstrap.sh" --exclude "Sublime Text 2" --exclude "README.md" -a . /home/vagrant
+fi
+cd
+rm -Rf /tmp/dotfiles
+
+echo "##### Installing various useful packages"
+
+checkInstalled ntp optipng jpegoptim curl htop ntp ffmpeg2theora spamassassin jhead
+if [[ ! -f /usr/local/bin/composer ]]; then
+    curl -s https://getcomposer.org/installer | php
+    mv composer.phar /usr/local/bin/composer
+    chmod a+x /usr/local/bin/composer
+fi
+
+echo "##### Setting up Postfix"
+
+checkInstalled postfix
+cat /etc/postfix/main.cf | sed -e "s/`hostname`/`hostname`.kunstmaan.be/g" > /etc/postfix/main.cf
+echo "`hostname`.kunstmaan.be" > /etc/mailname
+
+if [ ! -d "/vagrant" ]; then
+    echo "##### Installing chef"
+    checkInstalled chef ruby-shadow
+    echo "$(curl -fsSL https://gist.github.com/raw/c3d4107441b4c99a7245/ca3be7e8e806dd608bebf627b1c60ea7e15be375/client.rb)" > /etc/chef/client.rb
+    echo "$(curl -fsSL https://gist.github.com/raw/c3d4107441b4c99a7245/c25d0d89fb05f3dc0b00faaaa8ece6990d22644d/validation.pem)" > /etc/chef/validation.pem
+    /etc/init.d/chef-client restart
+fi
+echo "##### Setting the kdeploy-support package"
+
+yes | apt-get -o Dpkg::Options::="--force-overwrite"  -y install kdeploy-support
+
+echo "##### Installing java"
+
+checkInstalled openjdk-6-jdk
+mkdir -p /opt/jdk
+ln -sf /usr/lib/jvm/java-6-openjdk-amd64/ /opt/jdk/default
+
+echo "##### Installing xvfb"
+
+checkInstalled xvfb
+cp $INSTALLBASE/provisioning/etc/init.d/xvfb /etc/init.d/
+chmod +x /etc/init.d/xvfb
+mkdir /etc/X11/xserver
+touch /etc/X11/xserver/SecurityPolicy
+mkdir /usr/lib/xserver
+touch /usr/lib/xserver/SecurityPolicy
+/etc/init.d/xvfb start
+sysv-rc-conf --level 2345 xvfb on
+
+#echo "##### Installing GeoIP"
+#cpan -i Geo::IP::PurePerl
+
+echo "##### hupapache and logrotate"
+cd /opt/kDeploy
+gcc -o hupapache hupapache.c
+gcc -o logrotate logrotate.c
+chmod u+s logrotate
+chmod u+s hupapache
+
+echo "##### Restarting services"
+
+service apache2 restart
+service php5-fpm restart
+service mysql restart
+service postfix restart
+service postgresql restart
+
+apt-get  autoclean
+apt-get  clean
