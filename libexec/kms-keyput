@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Usage: kms keyput [user@]server [port]
+# Summary: Sets your ssh key in the authorised keys on a server
+# Help: Sets your ssh key in the authorised keys on a server, look out because chef overwrites this avery half hour
+
+rhost=$1
+shift
+port=$1
+
+if [ "$port" == "" ]; then
+    pstring="ssh $rhost"
+else
+    pstring="ssh $rhost -p $port"
+fi
+
+if [ ! -d ~/.ssh ]; then
+    mkdir ~/.ssh
+fi
+
+if [ -f ~/.ssh/id_dsa.pub ]; then
+    echo "putting ~/.ssh/id_dsa.pub"
+    cat "$HOME/.ssh/id_dsa.pub" | $pstring 'if [ ! -d ~/.ssh ]; then echo creating remote dot ssh; mkdir ~/.ssh; else echo remote dot ssh dir exists; fi ;cat >> ~/.ssh/authorized_keys; chmod -R og-rwx ~/.ssh'
+else
+    if [ -f ~/.ssh/id_rsa.pub ]; then
+        echo "putting ~/.ssh/id_rsa.pub"
+        cat "$HOME/.ssh/id_rsa.pub" | $pstring 'if [ ! -d ~/.ssh ]; then echo creating remote dot ssh; mkdir ~/.ssh; else echo remote dot ssh dir exists; fi ;cat >> ~/.ssh/authorized_keys; chmod -R og-rwx ~/.ssh'
+    else
+        echo "please save your ssh key in ~/.ssh/id_dsa.pub"
+        ssh-keygen -d
+        echo "putting ~/.ssh/id_dsa.pub"
+        cat "$HOME/.ssh/id_dsa.pub" | $pstring 'if [ ! -d ~/.ssh ]; then echo creating remote dot ssh; mkdir ~/.ssh; else echo remote dot ssh dir exists; fi ;cat >> ~/.ssh/authorized_keys; chmod -R og-rwx ~/.ssh'
+    fi
+fi
+
+$pstring 'cat ~/.ssh/authorized_keys | uniq > ~/.ssh/akn; mv ~/.ssh/akn ~/.ssh/authorized_keys; chmod -R og-rwx ~/.ssh'
