@@ -1,0 +1,219 @@
+#!/usr/bin/env bash
+# Usage: kms fetch -p [projectname] -s [user@server] -t [symfony-vendor|symfony-composer|openmercury] [-u] [-v]
+# Summary: Fetches a project from a server and sets up vagrant
+# Help: This will fetch a project from a server and set it up on your computer. By passing the -v parameter
+# you will get a running vagrant box with your project.
+#
+#       -p [projectname]
+#       -s [user@server]
+#       -t [symfony-vendor|symfony-composer|openmercury]
+#       -u to update an existing sync
+#       -v use vagrant
+
+ERROR=$(tput setab 1)$(tput bold)$(tput setaf 7)
+INFO=$(tput bold)$(tput setaf 4)
+SUCCESS=$(tput bold)$(tput setaf 2)
+RESET=$(tput sgr0)
+
+# Helper functions
+command_exists () {
+    type "$1" &> /dev/null ;
+}
+test_command_exists () {
+    if ! command_exists $1; then
+        echo "${ERROR}Missing dependency $1${RESET}" >&2
+        exit 1
+    fi
+}
+
+# Validating input variables
+#
+# -p [projectname]
+# -s [user@server]
+# -t [symfony-vendor|symfony-composer|openmercury] (TODO: autodetect)
+# -u to update an existing sync
+# -v use vagrant
+USAGE="${INFO}Usage: fetch-project -p [projectname] -s [user@server] -t [symfony-vendor|symfony-composer|openmercury] [-u] [-v]${RESET}"
+
+UPDATE=false
+VAGRANT=false
+while getopts ":p:s:t:uv" opt; do
+  case $opt in
+    p)
+        PROJECT=$OPTARG
+      ;;
+    s)
+        SERVER=$OPTARG
+      ;;
+    t)
+        TYPE=$OPTARG
+      ;;
+    u)
+        UPDATE=true
+      ;;
+    v)
+        VAGRANT=true
+      ;;
+    \?)
+        echo "${ERROR}Invalid option: -$OPTARG${RESET}" >&2
+        echo $USAGE
+        exit 1
+      ;;
+    :)
+        echo "${ERROR}Option -$OPTARG requires an argument.${RESET}" >&2
+        echo $USAGE
+        exit 1
+      ;;
+  esac
+done
+
+if [ -z "$PROJECT" ]; then
+    echo "${ERROR}Option -p is required argument.${RESET}"
+    echo $USAGE
+    exit 1
+fi
+
+if [ -z "$SERVER" ]; then
+    echo "${ERROR}Option -s is required argument.${RESET}"
+    echo $USAGE
+    exit 1
+fi
+
+if [ -z "$TYPE" ]; then
+    echo "${ERROR}Option -t is required argument.${RESET}"
+    echo $USAGE
+    exit 1
+fi
+
+# Testing for prerequisites
+#
+# vagrant
+# virtualbox
+# xmlstarlet
+# git
+# composer
+test_command_exists "vagrant"
+test_command_exists "virtualbox"
+test_command_exists "xmlstarlet"
+test_command_exists "git"
+test_command_exists "composer"
+
+# Getting the project directory
+CONFIG_PATH=/opt/kDeploy/tools/config.xml
+
+show_config_error () {
+    echo "${ERROR}There should be a kDeploy config file at $CONFIG_PATH${RESET}"
+    echo "${INFO}Minimal config:${RESET}"
+    echo "${INFO}   <config>${RESET}"
+    echo "${INFO}       <var name=\"config.projectsdir\" value=\"/home/projects/\" />${RESET}"
+    echo "${INFO}   </config>${RESET}"
+}
+
+if [ ! -f $CONFIG_PATH ]; then
+    show_config_error
+    exit 1
+fi
+
+PROJECTSDIR=`xmlstarlet sel -t -v "/config/var[@name='config.projectsdir']/@value" $CONFIG_PATH`
+
+if [ -z "$PROJECTSDIR" ]; then
+    show_config_error
+    exit 1
+fi
+
+if [[ -d $PROJECTSDIR/$PROJECT ]]; then
+    if [[ $UPDATE == "false" ]]; then
+        echo "${ERROR}$PROJECT already exist in $PROJECTSDIR, use the -u flag${RESET}"
+        exit 1
+    fi
+fi
+
+# Setting up the ignored files
+EXCLUDEFILE="/tmp/rsyncexclude"
+
+cat << 'EOF' > $EXCLUDEFILE
+apachelogs/*
+tmp/*
+.ssh
+EOF
+
+if [[ $UPDATE == "true" ]]; then
+    cat << 'EOF' >> $EXCLUDEFILE
+data/*
+EOF
+else
+    if [[ $TYPE =~ "symfony" ]]; then
+        cat << 'EOF' >> $EXCLUDEFILE
+data/current
+data/releases
+data/shared
+EOF
+    else
+        cat << 'EOF' >> $EXCLUDEFILE
+data/*
+EOF
+    fi
+fi
+
+# Syncing the project directory
+RSYNC="rsync -rltDhz --progress"
+BASE_ORIGIN="$SERVER:/home/projects/$PROJECT"
+
+$RSYNC --exclude-from="$EXCLUDEFILE" $BASE_ORIGIN $PROJECTSDIR
+
+if [[ $TYPE =~ "symfony" ]]; then
+    $RSYNC $BASE_ORIGIN/data/shared/web/* $PROJECTSDIR/$PROJECT/data/$PROJECT/web/
+fi
+
+# Making sure we have the vendors and latest versions [EXPERIMENTAL]
+cd $PROJECTSDIR/$PROJECT/data/$PROJECT
+
+if [[ $UPDATE == "false" ]]; then
+    git reset --hard
+    git pull
+    if [[ $TYPE =~ "symfony" ]]; then
+        ./param decode
+    fi
+fi
+
+# If using vagrant
+if [[ $VAGRANT == "true" ]]; then
+    cat << 'EOF' > $PROJECTSDIR/$PROJECT/Vagrantfile
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+Vagrant::Config.run do |config|
+  config.vm.box = "kdeploy-quantal32"
+  config.vm.box_url = "https://vagrant.kunstmaan.be/kdeploy-quantal32.box"
+  PROJECT=File.basename(File.dirname(__FILE__)).gsub(/\s+/, "").downcase # or customize by hand!
+  config.vm.share_folder("data", "/home/projects/#{PROJECT}", ".", :nfs => true)
+  config.vm.customize ["modifyvm", :id, "--memory", 512]
+  config.vm.network :hostonly, "33.33.33.33"
+  config.ssh.forward_agent = true
+  # Using https://github.com/mosaicxm/vagrant-hostmaster
+  config.vm.host_name = "#{PROJECT}.dev.kunstmaan.be"
+  config.hosts.aliases = "www.#{PROJECT}.dev.kunstmaan.be"
+  config.vm.provision :shell, :inline => "chmod 750 /etc/sudoers && echo 'Defaults env_keep+=SSH_AUTH_SOCK' >> /etc/sudoers"
+  config.vm.provision :shell, :inline => "su - postgres -c \"psql -c \\\"DROP DATABASE IF EXISTS #{PROJECT};\\\"\""
+  config.vm.provision :shell, :inline => "echo \"drop database IF EXISTS #{PROJECT}\" | mysql -u root -pvagrant"
+  config.vm.provision :shell, :inline => "cd /opt/kDeploy/tools; python maintenance.py; service apache2 restart; service php5-fpm restart"
+end
+EOF
+
+    cd $PROJECTSDIR/$PROJECT/
+    vagrant destroy
+    vagrant up
+fi
+
+cd $PROJECTSDIR/$PROJECT/data/$PROJECT
+if [[ $TYPE =~ "composer" ]]; then
+    composer self-update
+    composer install || echo "${ERROR}There was an error updating your vendors, please fix by hand${RESET}"; exit 1
+else
+    ./bin/vendor install
+fi
+
+# If using vagrant
+if [[ $VAGRANT == "true" ]]; then
+    echo "${INFO}You can now browse to http://$PROJECT.dev.kunstmaan.be${RESET}"
+fi
