@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Usage: kms startup
+# Summary: Starts up all Tomcat instances found in /home/projects, also updates the newrelic.jar
+# Help: Starts up all Tomcat instances found in /home/projects, also updates the newrelic.jar
+
+ls -1 /home/projects | while read project; do
+
+    if [ -d "/home/projects/$project/tomcat/default/bin" ]; then
+        if [ -d "/home/projects/$project/tomcat/default/newrelic" ]; then
+            cp $_KMS_ROOT/share/kms/newrelic.jar /home/projects/$project/tomcat/default/newrelic/
+            echo "newrelic updated"
+        fi
+        su - $project -c "cd /home/projects/$project/tomcat/default/bin; ./startup.sh"
+    fi
+
+done
