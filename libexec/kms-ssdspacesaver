@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Usage: kms ssdspacesaver [all]
+# Summary: Moves some large folders to the hdd to save space on the ssd
+# Help: Moves some large folders to the hdd to save space on the ssd
+
+function doTheMoveLink {
+    folder="$1"
+    if [ -d "$basedir/$folder" ] && [ ! -L "$basedir/$folder" ]
+    then
+        echo "Moving the $folder dir for $project"
+        mv "$basedir/$folder" "$target/"
+        ln -sf "$target/$folder" "$basedir/$folder"
+    else
+        if [ -L "$basedir/$folder" ]
+        then
+            echo "The $basedir/$folder dir for $project is already a symlink"
+        else
+            echo "The $basedir/$folder dir does not exist"
+        fi
+    fi
+}
+
+function savespace {
+    project="$1"
+    target="/Volumes/Data/projects/$project"
+    basedir="/home/projects/$project"
+
+    mkdir -p "$target"
+    doTheMoveLink "files"
+    doTheMoveLink "resizedcache"
+    doTheMoveLink "apachelogs"
+    doTheMoveLink "uploadcache"
+    doTheMoveLink "backup"
+    doTheMoveLink "filestore"
+}
+
+if [[ "$1" == "all" ]]; then
+    ls -1 /home/projects/ | while read project; do
+        echo "Moving $project"
+        savespace $project
+    done
+else
+    savespace $1
+fi
