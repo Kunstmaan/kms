@@ -61,9 +61,8 @@ id allemail 2>/dev/null || useradd allemail -m
 
 function emit_maincf {
     cat /etc/postfix/main.cf | egrep -v ^relayhost | egrep -v ^mynetworks | egrep -v ^inet_interfaces
-    echo "relayhost = invalid_smtp_server_that_cannot_send_mails"
     echo "mynetworks = 0.0.0.0/0"
-    echo "virtual_maps = pcre:/etc/postfix/virtual"
+    echo "virtual_alias_maps = pcre:/etc/postfix/virtual"
     echo "home_mailbox = Maildir/"
     echo "inet_interfaces = all"
 }
