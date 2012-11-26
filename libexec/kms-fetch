@@ -148,10 +148,6 @@ data/current
 data/releases
 data/shared
 EOF
-    else
-        cat << 'EOF' >> $EXCLUDEFILE
-data/*
-EOF
     fi
 fi
 
@@ -182,6 +178,17 @@ if [[ $VAGRANT == "true" ]]; then
     cd $PROJECTSDIR/$PROJECT/
     vagrant destroy
     vagrant up
+fi
+
+if [[ $UPDATE == "true" ]]; then
+    if [[ $VAGRANT == "false" ]]; then
+        psqluser=`xmlstarlet sel -t -v "/config/var[@name='config.postgresuser']/@value" /opt/kDeploy/tools/config.xml`
+        mysqlpass=`xmlstarlet sel -t -v "/config/var[@name='config.mysqladminpassword']/@value" /opt/kDeploy/tools/config.xml`
+        if su $psqluser -c "psql $project -c \"select 12 as twelve;\" || exit 1" >/dev/null 2>&1; then
+            su $psqluser -c "psql template1 -c \"DROP DATABASE $project;\"" || exit 1
+        fi
+        echo "drop database IF EXISTS $project" | mysql -u root -p$mysqlpass
+    fi
 fi
 
 cd $PROJECTSDIR/$PROJECT/data/$PROJECT
