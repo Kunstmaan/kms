@@ -133,6 +133,8 @@ EXCLUDEFILE="/tmp/rsyncexclude"
 
 cat << 'EOF' > $EXCLUDEFILE
 apachelogs/*
+resizedcache/*
+nobackup/*
 tmp/*
 .ssh
 EOF
@@ -168,16 +170,12 @@ if [[ $UPDATE == "false" ]]; then
     git reset --hard
     git pull
     if [[ $TYPE =~ "symfony" ]]; then
-        ./param decode
+        if [[ -f "paramDecode" ]]; then
+            ./paramDecode
+        else
+            ./param decode
+        fi
     fi
-fi
-
-# If using vagrant
-if [[ $VAGRANT == "true" ]]; then
-    kms vagrant $PROJECTSDIR/$PROJECT/
-    cd $PROJECTSDIR/$PROJECT/
-    vagrant destroy
-    vagrant up
 fi
 
 if [[ $UPDATE == "true" ]]; then
@@ -196,10 +194,14 @@ if [[ $TYPE =~ "composer" ]]; then
     composer self-update
     composer install || echo "${ERROR}There was an error updating your vendors, please fix by hand${RESET}"; exit 1
 else
-    ./bin/vendor install
+    ./bin/vendors install
 fi
 
 # If using vagrant
 if [[ $VAGRANT == "true" ]]; then
+    kms vagrant $PROJECTSDIR/$PROJECT/
+    cd $PROJECTSDIR/$PROJECT/
+    vagrant destroy
+    vagrant up
     echo "${INFO}You can now browse to http://$PROJECT.dev.kunstmaan.be${RESET}"
 fi
