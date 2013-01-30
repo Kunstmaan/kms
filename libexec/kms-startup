@@ -3,6 +3,8 @@
 # Summary: Starts up all Tomcat instances found in /home/projects, also updates the newrelic.jar
 # Help: Starts up all Tomcat instances found in /home/projects, also updates the newrelic.jar
 
+set -e
+
 ls -1 /home/projects | while read project; do
 
     if [ -d "/home/projects/$project/tomcat/default/bin" ]; then

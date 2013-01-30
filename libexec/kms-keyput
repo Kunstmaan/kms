@@ -3,6 +3,8 @@
 # Summary: Sets your ssh key in the authorised keys on a server
 # Help: Sets your ssh key in the authorised keys on a server, look out because chef overwrites this avery half hour
 
+set -e
+
 rhost=$1
 shift
 port=$1

@@ -3,6 +3,8 @@
 # Summary: Moves some large folders to the hdd to save space on the ssd
 # Help: Moves some large folders to the hdd to save space on the ssd
 
+set -e
+
 function doTheMoveLink {
     folder="$1"
     if [ -d "$basedir/$folder" ] && [ ! -L "$basedir/$folder" ]

@@ -3,6 +3,8 @@
 # Summary: Creates a vagrant config for a project
 # Help: Creates a vagrant config for a project
 
+set -e
+
 cat << 'EOF' > $1/Vagrantfile
 # -*- mode: ruby -*-
 # vi: set ft=ruby :
@@ -11,13 +13,11 @@ Vagrant::Config.run do |config|
   config.vm.box = "kdeploy-quantal32"
   config.vm.box_url = "https://vagrant.kunstmaan.be/kdeploy-quantal32.box"
   PROJECT=File.basename(File.dirname(__FILE__)).gsub(/\s+/, "").downcase # or customize by hand!
-  config.vm.share_folder("data", "/home/projects/#{PROJECT}", ".", :nfs => true)
-  config.vm.customize ["modifyvm", :id, "--memory", 512]
+  config.vm.share_folder("data", "/home/projects/#{PROJECT}", ".", :nfs => true, :extra => 'dmode=777,fmode=777')
+  config.vm.customize ["modifyvm", :id, "--memory", 1024]
   config.vm.network :hostonly, "33.33.33.33"
   config.ssh.forward_agent = true
-  # Using https://github.com/mosaicxm/vagrant-hostmaster
-  config.vm.host_name = "#{PROJECT}.dev.kunstmaan.be"
-  config.hosts.aliases = "www.#{PROJECT}.dev.kunstmaan.be"
+  config.vm.forward_port 80, 8484
   config.vm.provision :shell, :inline => "chmod 750 /etc/sudoers && echo 'Defaults env_keep+=SSH_AUTH_SOCK' >> /etc/sudoers"
   config.vm.provision :shell, :inline => "su - postgres -c \"psql -c \\\"DROP DATABASE IF EXISTS #{PROJECT};\\\"\""
   config.vm.provision :shell, :inline => "echo \"drop database IF EXISTS #{PROJECT}\" | mysql -u root -pvagrant"

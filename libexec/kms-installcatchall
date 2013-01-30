@@ -3,6 +3,8 @@
 # Summary: [EXPERIMENTAL] Installs a catchall mailserver for use on a staging
 # Help: Installs a catchall mailserver for use on a staging
 
+set -e
+
 echo "this will install a catchall server"
 echo "do not run this on a live machine"
 MYFOLDER=$(dirname $0)

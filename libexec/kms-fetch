@@ -6,9 +6,10 @@
 #
 #       -p [projectname]
 #       -s [user@server]
-#       -t [symfony-vendor|symfony-composer|openmercury]
 #       -u to update an existing sync
 #       -v use vagrant
+
+set -e
 
 ERROR=$(tput setab 1)$(tput bold)$(tput setaf 7)
 INFO=$(tput bold)$(tput setaf 4)
@@ -30,23 +31,19 @@ test_command_exists () {
 #
 # -p [projectname]
 # -s [user@server]
-# -t [symfony-vendor|symfony-composer|openmercury] (TODO: autodetect)
 # -u to update an existing sync
 # -v use vagrant
-USAGE="${INFO}Usage: fetch-project -p [projectname] -s [user@server] -t [symfony-vendor|symfony-composer|openmercury] [-u] [-v]${RESET}"
+USAGE="${INFO}Usage: fetch-project -p [projectname] -s [user@server] [-u] [-v]${RESET}"
 
 UPDATE=false
 VAGRANT=false
-while getopts ":p:s:t:uv" opt; do
+while getopts ":p:s:uv" opt; do
   case $opt in
     p)
         PROJECT=$OPTARG
       ;;
     s)
         SERVER=$OPTARG
-      ;;
-    t)
-        TYPE=$OPTARG
       ;;
     u)
         UPDATE=true
@@ -75,12 +72,6 @@ fi
 
 if [ -z "$SERVER" ]; then
     echo "${ERROR}Option -s is required argument.${RESET}"
-    echo $USAGE
-    exit 1
-fi
-
-if [ -z "$TYPE" ]; then
-    echo "${ERROR}Option -t is required argument.${RESET}"
     echo $USAGE
     exit 1
 fi
@@ -136,6 +127,7 @@ apachelogs/*
 resizedcache/*
 nobackup/*
 tmp/*
+.viminfo
 .ssh
 EOF
 
@@ -144,13 +136,11 @@ if [[ $UPDATE == "true" ]]; then
 data/*
 EOF
 else
-    if [[ $TYPE =~ "symfony" ]]; then
-        cat << 'EOF' >> $EXCLUDEFILE
+    cat << 'EOF' >> $EXCLUDEFILE
 data/current
 data/releases
 data/shared
 EOF
-    fi
 fi
 
 # Syncing the project directory
@@ -159,7 +149,7 @@ BASE_ORIGIN="$SERVER:/home/projects/$PROJECT"
 
 $RSYNC --exclude-from="$EXCLUDEFILE" $BASE_ORIGIN $PROJECTSDIR
 
-if [[ $TYPE =~ "symfony" ]]; then
+if [[ -d "$PROJECTSDIR/$PROJECT/data/$PROJECT/web/" ]]; then
     $RSYNC $BASE_ORIGIN/data/shared/web/* $PROJECTSDIR/$PROJECT/data/$PROJECT/web/
 fi
 
@@ -169,12 +159,10 @@ cd $PROJECTSDIR/$PROJECT/data/$PROJECT
 if [[ $UPDATE == "false" ]]; then
     git reset --hard
     git pull
-    if [[ $TYPE =~ "symfony" ]]; then
-        if [[ -f "paramDecode" ]]; then
-            ./paramDecode
-        else
-            ./param decode
-        fi
+    if [[ -f "paramDecode" ]]; then
+        ./paramDecode
+    else
+        ./param decode
     fi
 fi
 
@@ -182,26 +170,28 @@ if [[ $UPDATE == "true" ]]; then
     if [[ $VAGRANT == "false" ]]; then
         psqluser=`xmlstarlet sel -t -v "/config/var[@name='config.postgresuser']/@value" /opt/kDeploy/tools/config.xml`
         mysqlpass=`xmlstarlet sel -t -v "/config/var[@name='config.mysqladminpassword']/@value" /opt/kDeploy/tools/config.xml`
-        if su $psqluser -c "psql $project -c \"select 12 as twelve;\" || exit 1" >/dev/null 2>&1; then
-            su $psqluser -c "psql template1 -c \"DROP DATABASE $project;\"" || exit 1
+        if su $psqluser -c "psql $PROJECT -c \"select 12 as twelve;\" || exit 1" >/dev/null 2>&1; then
+            su $psqluser -c "psql template1 -c \"DROP DATABASE $PROJECT;\"" || exit 1
         fi
-        echo "drop database IF EXISTS $project" | mysql -u root -p$mysqlpass
+        echo "drop database IF EXISTS $PROJECT" | mysql -u root -p$mysqlpass
     fi
 fi
 
 cd $PROJECTSDIR/$PROJECT/data/$PROJECT
-if [[ $TYPE =~ "composer" ]]; then
+if [[ -f "composer.json" ]]; then
     composer self-update
     composer install || echo "${ERROR}There was an error updating your vendors, please fix by hand${RESET}"; exit 1
 else
-    ./bin/vendors install
+    if [[ -f "bin/vendors" ]]; then
+        ./bin/vendors install
+    fi
 fi
 
 # If using vagrant
 if [[ $VAGRANT == "true" ]]; then
-    kms vagrant $PROJECTSDIR/$PROJECT/
+    bash kms-vagrant $PROJECTSDIR/$PROJECT/
     cd $PROJECTSDIR/$PROJECT/
     vagrant destroy
     vagrant up
-    echo "${INFO}You can now browse to http://$PROJECT.dev.kunstmaan.be${RESET}"
+    echo "${INFO}You can now browse to http://localhost:8484"
 fi
