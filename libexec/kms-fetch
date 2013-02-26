@@ -1,197 +1,126 @@
-#!/usr/bin/env bash
-# Usage: kms fetch -p [projectname] -s [user@server] -t [symfony-vendor|symfony-composer|openmercury] [-u] [-v]
-# Summary: Fetches a project from a server and sets up vagrant
-# Help: This will fetch a project from a server and set it up on your computer. By passing the -v parameter
-# you will get a running vagrant box with your project.
-#
-#       -p [projectname]
-#       -s [user@server]
-#       -u to update an existing sync
-#       -v use vagrant
+#!/usr/bin/env ruby
+# Usage: kms fetch -p projectname -s server [--debug|-d]
+# Summary: Fetches a project from a server
+# Help: This will fetch a project from a server and set it up on your computer.
 
-set -e
+require "pathname"
 
-ERROR=$(tput setab 1)$(tput bold)$(tput setaf 7)
-INFO=$(tput bold)$(tput setaf 4)
-SUCCESS=$(tput bold)$(tput setaf 2)
-RESET=$(tput sgr0)
+if ENV["USER"] == "root"
+  abort "Run this as a normal user, I'll sudo if I need to."
+end
 
-# Helper functions
-command_exists () {
-    type "$1" &> /dev/null ;
-}
-test_command_exists () {
-    if ! command_exists $1; then
-        echo "${ERROR}Missing dependency $1${RESET}" >&2
-        exit 1
-    fi
-}
+# Make sure only one fetch process runs at a time.
 
-# Validating input variables
-#
-# -p [projectname]
-# -s [user@server]
-# -u to update an existing sync
-# -v use vagrant
-USAGE="${INFO}Usage: fetch-project -p [projectname] -s [user@server] [-u] [-v]${RESET}"
+myself = File.new __FILE__
 
-UPDATE=false
-VAGRANT=false
-while getopts ":p:s:uv" opt; do
-  case $opt in
-    p)
-        PROJECT=$OPTARG
-      ;;
-    s)
-        SERVER=$OPTARG
-      ;;
-    u)
-        UPDATE=true
-      ;;
-    v)
-        VAGRANT=true
-      ;;
-    \?)
-        echo "${ERROR}Invalid option: -$OPTARG${RESET}" >&2
-        echo $USAGE
-        exit 1
-      ;;
-    :)
-        echo "${ERROR}Option -$OPTARG requires an argument.${RESET}" >&2
-        echo $USAGE
-        exit 1
-      ;;
-  esac
-done
+unless myself.flock File::LOCK_EX | File::LOCK_NB
+  abort "You're already running a fetch process! Know a patience."
+end
 
-if [ -z "$PROJECT" ]; then
-    echo "${ERROR}Option -p is required argument.${RESET}"
-    echo $USAGE
-    exit 1
-fi
+# Yeah yeah, I like to be explicit.
 
-if [ -z "$SERVER" ]; then
-    echo "${ERROR}Option -s is required argument.${RESET}"
-    echo $USAGE
-    exit 1
-fi
+at_exit { myself.flock File::LOCK_UN }
 
-# Testing for prerequisites
-#
-# vagrant
-# virtualbox
-# xmlstarlet
-# git
-# composer
-test_command_exists "vagrant"
-test_command_exists "virtualbox"
-test_command_exists "xmlstarlet"
-test_command_exists "git"
-test_command_exists "composer"
+# Flags
+require 'optparse'
 
-# Getting the project directory
-CONFIG_PATH=/opt/kDeploy/tools/config.xml
+options = {}
+OptionParser.new do |opts|
+    opts.banner = "Usage: kms fetch projectname user@server [options]"
 
-show_config_error () {
-    echo "${ERROR}There should be a kDeploy config file at $CONFIG_PATH${RESET}"
-    echo "${INFO}Minimal config:${RESET}"
-    echo "${INFO}   <config>${RESET}"
-    echo "${INFO}       <var name=\"config.projectsdir\" value=\"/home/projects/\" />${RESET}"
-    echo "${INFO}   </config>${RESET}"
-}
+    opts.on("-p", "--project PROJECT", "The project you want to fetch") do |project|
+        options[:project] = project
+    end
 
-if [ ! -f $CONFIG_PATH ]; then
-    show_config_error
-    exit 1
-fi
+    opts.on("-s", "--server SERVER", "The server where you want to fetch from") do |server|
+        options[:server] = server
+    end
 
-PROJECTSDIR=`xmlstarlet sel -t -v "/config/var[@name='config.projectsdir']/@value" $CONFIG_PATH`
+    opts.on("-d", "--debug", "Show debug information") do |debug|
+        options[:debug] = debug
+    end
 
-if [ -z "$PROJECTSDIR" ]; then
-    show_config_error
-    exit 1
-fi
+    opts.separator ""
+    opts.separator "Common options:"
 
-if [[ -d $PROJECTSDIR/$PROJECT ]]; then
-    if [[ $UPDATE == "false" ]]; then
-        echo "${ERROR}$PROJECT already exist in $PROJECTSDIR, use the -u flag${RESET}"
-        exit 1
-    fi
-fi
+    opts.on_tail("-h", "--help", "Show this message") do
+        puts opts
+        exit
+    end
 
-# Setting up the ignored files
-EXCLUDEFILE="/tmp/rsyncexclude"
+    opts.on_tail("--version", "Show version") do
+        puts "1.0.0"
+        exit
+    end
 
-cat << 'EOF' > $EXCLUDEFILE
-apachelogs/*
-resizedcache/*
-nobackup/*
-tmp/*
-.viminfo
-.ssh
-EOF
+end.parse!
 
-if [[ $UPDATE == "true" ]]; then
-    cat << 'EOF' >> $EXCLUDEFILE
-data/*
-EOF
+unless options.key? :project and options.key? :server
+    abort("Both --project and --server are required")
+end
+
+options[:path] = `xmlstarlet sel -t -v "/config/var[@name='config.projectsdir']/@value" /opt/kDeploy/tools/config.xml`.strip
+options[:update] = File.exists?("/home/projects/#{options[:project]}")
+
+
+# Rsync the project
+puts "  -> rsync the project"
+
+rsync_excludes = [ ".composer", "apachelogs/*", "resizedcache/*", "nobackup/*", "tmp/*", ".viminfo", ".ssh", ".bash_history" ]
+if options[:update]
+    rsync_excludes << "data/*"
 else
-    cat << 'EOF' >> $EXCLUDEFILE
-data/current
-data/releases
-data/shared
-EOF
-fi
+    rsync_excludes = rsync_excludes + [ "data/current", "data/releases", "data/shared" ]
+end
 
-# Syncing the project directory
-RSYNC="rsync -rltDhz --progress"
-BASE_ORIGIN="$SERVER:/home/projects/$PROJECT"
+rsync_command = [ "rsync",  "-rltDhz"]
+rsync_excludes.each do |rsync_exclude|
+    rsync_command << "--exclude=#{rsync_exclude}"
+end
 
-$RSYNC --exclude-from="$EXCLUDEFILE" $BASE_ORIGIN $PROJECTSDIR
+rsync_command << "--progress" if options[:debug]
 
-if [[ -d "$PROJECTSDIR/$PROJECT/data/$PROJECT/web/" ]]; then
-    $RSYNC $BASE_ORIGIN/data/shared/web/* $PROJECTSDIR/$PROJECT/data/$PROJECT/web/
-fi
+rsync_command << "#{ENV["USER"]}@#{options[:server]}:/home/projects/#{options[:project]}"
+rsync_command << options[:path]
 
-# Making sure we have the vendors and latest versions [EXPERIMENTAL]
-cd $PROJECTSDIR/$PROJECT/data/$PROJECT
+warn rsync_command.join(" ") if options[:debug]
+unless system *rsync_command
+    abort "There was a problem running rsync. Run using --debug for more information"
+end
 
-if [[ $UPDATE == "false" ]]; then
-    git reset --hard
-    git pull
-    if [[ -f "paramDecode" ]]; then
-        ./paramDecode
-    else
-        ./param decode
-    fi
-fi
+# Rsync the web folder
+if File.exist?("#{options[:path]}#{options[:project]}/data/#{options[:project]}/web/")
+    puts "  -> rsync the web folder"
+    rsync_command = [ "rsync",  "-rltDhz"]
+    rsync_excludes.each do |rsync_exclude|
+        rsync_command << "--exclude=#{rsync_exclude}"
+    end
 
-if [[ $UPDATE == "true" ]]; then
-    if [[ $VAGRANT == "false" ]]; then
-        psqluser=`xmlstarlet sel -t -v "/config/var[@name='config.postgresuser']/@value" /opt/kDeploy/tools/config.xml`
-        mysqlpass=`xmlstarlet sel -t -v "/config/var[@name='config.mysqladminpassword']/@value" /opt/kDeploy/tools/config.xml`
-        if su $psqluser -c "psql $PROJECT -c \"select 12 as twelve;\" || exit 1" >/dev/null 2>&1; then
-            su $psqluser -c "psql template1 -c \"DROP DATABASE $PROJECT;\"" || exit 1
-        fi
-        echo "drop database IF EXISTS $PROJECT" | mysql -u root -p$mysqlpass
-    fi
-fi
+    rsync_command << "--progress" if options[:debug]
 
-cd $PROJECTSDIR/$PROJECT/data/$PROJECT
-if [[ -f "composer.json" ]]; then
-    composer self-update
-    composer install || echo "${ERROR}There was an error updating your vendors, please fix by hand${RESET}"; exit 1
-else
-    if [[ -f "bin/vendors" ]]; then
-        ./bin/vendors install
-    fi
-fi
+    rsync_command << "#{ENV["USER"]}@#{options[:server]}:/home/projects/#{options[:project]}/data/shared/web/*"
+    rsync_command << "#{options[:path]}#{options[:project]}/data/#{options[:project]}/web/"
 
-# If using vagrant
-if [[ $VAGRANT == "true" ]]; then
-    bash kms-vagrant $PROJECTSDIR/$PROJECT/
-    cd $PROJECTSDIR/$PROJECT/
-    vagrant destroy
-    vagrant up
-    echo "${INFO}You can now browse to http://localhost:8484"
-fi
+    warn rsync_command.join(" ") if options[:debug]
+    unless system *rsync_command
+        abort "There was a problem running rsync. Run using --debug for more information"
+    end
+end
+
+# Drop databases
+puts "  -> drop the databases"
+
+options[:mysqlpassword] = `xmlstarlet sel -t -v "/config/var[@name='config.mysqladminpassword']/@value" /opt/kDeploy/tools/config.xml`.strip
+
+%x( echo "drop database IF EXISTS #{options[:project]}" | mysql -u root -p#{options[:mysqlpassword]} > /dev/null 2>&1 )
+
+%x( psql #{options[:project]} -c "select 12 as twelve;" >/dev/null 2>&1 || exit 1 )
+if ($?.exitstatus == 0)
+     %x( psql template1 -c "DROP DATABASE #{options[:project]}" )
+end
+
+puts
+puts "+-------------------------------------------------------------------------------+"
+puts "| Now you need to run your dependency management tools (e.g. composer install), |"
+puts "| run fixperms and maintenance quick and finally restart apache.                |"
+puts "+-------------------------------------------------------------------------------+"
