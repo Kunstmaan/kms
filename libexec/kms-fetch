@@ -82,12 +82,12 @@ unless options[:update]
     cmd_remote_file_size = "#{cmd_ssh} '#{cmd_correct_dir}; #{cmd_find_size}'"
     warn cmd_remote_file_size.blue if options[:debug]
     size = `#{cmd_remote_file_size}`.strip
-    cmd_create_tar = "tar chzf - #{options[:project]}"
+    cmd_create_tar = "tar chf - #{options[:project]}"
     initial_excludes.each do |tar_exclude|
          cmd_create_tar << " --exclude=\"#{options[:project]}/#{tar_exclude}\""
     end
     cmd_progress = "pv -p -e -a -s #{size}k"
-    cmd_extract_tar = "tar xzf -"
+    cmd_extract_tar = "tar xf -"
     cmd_transfer = "#{cmd_correct_dir}; #{cmd_ssh} '#{cmd_correct_dir}; #{cmd_create_tar}' | #{cmd_progress} | #{cmd_extract_tar}"
     warn cmd_transfer.blue if options[:debug]
     unless system cmd_transfer
