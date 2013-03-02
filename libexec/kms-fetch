@@ -3,6 +3,11 @@
 # Summary: Fetches a project from a server
 # Help: This will fetch a project from a server and set it up on your computer.
 
+unless system("(gem spec colored -v '~> 1.2' > /dev/null 2>&1) || gem install colored --no-rdoc --no-ri")
+    abort "Failed to install colored"
+end
+
+require "colored"
 require "pathname"
 
 if ENV["USER"] == "root"
@@ -56,71 +61,83 @@ OptionParser.new do |opts|
 end.parse!
 
 unless options.key? :project and options.key? :server
-    abort("Both --project and --server are required")
+    abort("Both --project and --server are required".red)
 end
 
 options[:path] = `xmlstarlet sel -t -v "/config/var[@name='config.projectsdir']/@value" /opt/kDeploy/tools/config.xml`.strip
 options[:update] = File.exists?("/home/projects/#{options[:project]}")
 
+excludes = [ ".composer", "apachelogs/*", "resizedcache/*", "nobackup/*", "tmp/*", ".viminfo", ".ssh", ".bash_history", ".config", ".mysql_history", "data/current/app/logs/*", "data/current/app/cache/*" ]
 
-# Rsync the project
-puts "  -> rsync the project"
-
-rsync_excludes = [ ".composer", "apachelogs/*", "resizedcache/*", "nobackup/*", "tmp/*", ".viminfo", ".ssh", ".bash_history" ]
-if options[:update]
-    rsync_excludes << "data/*"
+unless options[:update]
+    puts "-> new install, running the tar sequence".green
+    initial_excludes = excludes + [ "data/shared", "data/releases", "data/#{options[:project]}" ]
+    cmd_ssh = "ssh #{ENV["USER"]}@#{options[:server]}"
+    cmd_correct_dir = "cd #{options[:path]}/"
+    initial_du_excludes_string = ""
+    initial_excludes.each do |exclude|
+         initial_du_excludes_string << "--exclude=\"#{exclude}\" "
+    end
+    cmd_find_size = "du -sLk #{initial_du_excludes_string} #{options[:project]} | cut -f 1"
+    cmd_remote_file_size = "#{cmd_ssh} '#{cmd_correct_dir}; #{cmd_find_size}'"
+    warn cmd_remote_file_size.blue if options[:debug]
+    size = `#{cmd_remote_file_size}`.strip
+    cmd_create_tar = "tar chzf - #{options[:project]}"
+    initial_excludes.each do |tar_exclude|
+         cmd_create_tar << " --exclude=\"#{options[:project]}/#{tar_exclude}\""
+    end
+    cmd_progress = "pv -p -e -a -s #{size}k"
+    cmd_extract_tar = "tar xzf -"
+    cmd_transfer = "#{cmd_correct_dir}; #{cmd_ssh} '#{cmd_correct_dir}; #{cmd_create_tar}' | #{cmd_progress} | #{cmd_extract_tar}"
+    warn cmd_transfer.blue if options[:debug]
+    unless system cmd_transfer
+        abort "There was a problem transferring the project. Run using --debug for more information".red
+    end
+    mv_command = "mv #{options[:path]}/#{options[:project]}/data/current #{options[:path]}/#{options[:project]}/data/#{options[:project]}"
+    warn mv_command.blue if options[:debug]
+    unless system mv_command
+        abort "There was a problem moving the current folder. Run using --debug for more information".red
+    end
 else
-    rsync_excludes = rsync_excludes + [ "data/current", "data/releases", "data/shared" ]
-end
-
-rsync_command = [ "rsync",  "-rltDhz"]
-rsync_excludes.each do |rsync_exclude|
-    rsync_command << "--exclude=#{rsync_exclude}"
-end
-
-rsync_command << "--progress" if options[:debug]
-
-rsync_command << "#{ENV["USER"]}@#{options[:server]}:/home/projects/#{options[:project]}"
-rsync_command << options[:path]
-
-warn rsync_command.join(" ") if options[:debug]
-unless system *rsync_command
-    abort "There was a problem running rsync. Run using --debug for more information"
-end
-
-# Rsync the web folder
-if File.exist?("#{options[:path]}#{options[:project]}/data/#{options[:project]}/web/")
-    puts "  -> rsync the web folder"
-    rsync_command = [ "rsync",  "-rltDhz"]
-    rsync_excludes.each do |rsync_exclude|
+    puts "-> existing install, running the rsync sequence".green
+    update_excludes = excludes + [ "data/*" ]
+    rsync_command = [ "rsync",  "-rtDhz", "--copy-links"]
+    update_excludes.each do |rsync_exclude|
         rsync_command << "--exclude=#{rsync_exclude}"
     end
-
     rsync_command << "--progress" if options[:debug]
-
-    rsync_command << "#{ENV["USER"]}@#{options[:server]}:/home/projects/#{options[:project]}/data/shared/web/*"
-    rsync_command << "#{options[:path]}#{options[:project]}/data/#{options[:project]}/web/"
-
-    warn rsync_command.join(" ") if options[:debug]
+    rsync_command << "#{ENV["USER"]}@#{options[:server]}:/home/projects/#{options[:project]}"
+    rsync_command << options[:path]
+    warn rsync_command.join(" ").blue if options[:debug]
     unless system *rsync_command
-        abort "There was a problem running rsync. Run using --debug for more information"
+        abort "There was a problem running rsync. Run using --debug for more information".red
+    end
+    if File.exist?("#{options[:path]}#{options[:project]}/data/#{options[:project]}/web/")
+        rsync_command = [ "rsync",  "-rltDhz"]
+        update_excludes.each do |rsync_exclude|
+            rsync_command << "--exclude=#{rsync_exclude}"
+        end
+        rsync_command << "--progress" if options[:debug]
+        rsync_command << "#{ENV["USER"]}@#{options[:server]}:/home/projects/#{options[:project]}/data/shared/web/*"
+        rsync_command << "#{options[:path]}#{options[:project]}/data/#{options[:project]}/web/"
+        warn rsync_command.join(" ").blue if options[:debug]
+        unless system *rsync_command
+            abort "There was a problem running rsync. Run using --debug for more information".red
+        end
     end
 end
 
-# Drop databases
-puts "  -> drop the databases"
+puts "-> drop the databases".green
 
 options[:mysqlpassword] = `xmlstarlet sel -t -v "/config/var[@name='config.mysqladminpassword']/@value" /opt/kDeploy/tools/config.xml`.strip
-
 %x( echo "drop database IF EXISTS #{options[:project]}" | mysql -u root -p#{options[:mysqlpassword]} > /dev/null 2>&1 )
-
 %x( psql #{options[:project]} -c "select 12 as twelve;" >/dev/null 2>&1 || exit 1 )
 if ($?.exitstatus == 0)
      %x( psql template1 -c "DROP DATABASE #{options[:project]}" )
 end
 
 puts
-puts "+-------------------------------------------------------------------------------+"
-puts "| Now you need to run your dependency management tools (e.g. composer install), |"
-puts "| run fixperms and maintenance quick and finally restart apache.                |"
-puts "+-------------------------------------------------------------------------------+"
+puts "+-------------------------------------------------------------------------------+".green
+puts "| Now you need to run your dependency management tools (e.g. composer install), |".green
+puts "| run fixperms and maintenance quick and finally restart apache.                |".green
+puts "+-------------------------------------------------------------------------------+".green
