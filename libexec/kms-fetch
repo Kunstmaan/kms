@@ -136,6 +136,15 @@ if ($?.exitstatus == 0)
      %x( psql template1 -c "DROP DATABASE #{options[:project]}" )
 end
 
+if File.exist?("#{options[:path]}#{options[:project]}/data/#{options[:project]}/composer.json")
+    puts "-> project uses composer, running install".green
+    %x( type -a composer >/dev/null 2>&1 )
+    if ($?.exitstatus == 0)
+         %x( cd #{options[:path]}#{options[:project]}/data/#{options[:project]}/; composer install )
+    end
+end
+
+
 puts
 puts "+-------------------------------------------------------------------------------+".green
 puts "| Now you need to run your dependency management tools (e.g. composer install), |".green
