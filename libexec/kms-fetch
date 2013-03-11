@@ -110,7 +110,7 @@ else
     rsync_command << options[:path]
     warn rsync_command.join(" ").blue if options[:debug]
     unless system *rsync_command
-        abort "There was a problem running rsync. Run using --debug for more information".red
+        warn "There was a problem running rsync. Run using --debug for more information".red
     end
     if File.exist?("#{options[:path]}#{options[:project]}/data/#{options[:project]}/web/")
         rsync_command = [ "rsync",  "-rltDhz"]
