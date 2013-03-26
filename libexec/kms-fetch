@@ -1,5 +1,5 @@
 #!/usr/bin/env ruby
-# Usage: kms fetch -p projectname -s server [--debug|-d]
+# Usage: kms fetch -p projectname -s server [--java|-j] [--debug|-d]
 # Summary: Fetches a project from a server
 # Help: This will fetch a project from a server and set it up on your computer.
 
@@ -41,6 +41,10 @@ OptionParser.new do |opts|
         options[:server] = server
     end
 
+    opts.on("-j", "--java", "Specify that it is a Java project") do |java|
+        options[:java] = java
+    end
+
     opts.on("-d", "--debug", "Show debug information") do |debug|
         options[:debug] = debug
     end
@@ -71,7 +75,10 @@ excludes = [ ".composer", "apachelogs/*", "resizedcache/*", "nobackup/*", "tmp/*
 
 unless options[:update]
     puts "-> new install, running the tar sequence".green
-    initial_excludes = excludes + [ "data/shared", "data/releases", "data/#{options[:project]}" ]
+    initial_excludes = excludes + [ "data/shared", "data/releases"]
+    unless options[:java]
+        initial_excludes << "data/#{options[:project]}"
+    end
     cmd_ssh = "ssh #{ENV["USER"]}@#{options[:server]}"
     cmd_correct_dir = "cd #{options[:path]}/"
     initial_du_excludes_string = ""
@@ -93,10 +100,12 @@ unless options[:update]
     unless system cmd_transfer
         abort "There was a problem transferring the project. Run using --debug for more information".red
     end
-    mv_command = "mv #{options[:path]}/#{options[:project]}/data/current #{options[:path]}/#{options[:project]}/data/#{options[:project]}"
-    warn mv_command.blue if options[:debug]
-    unless system mv_command
-        abort "There was a problem moving the current folder. Run using --debug for more information".red
+    unless options[:java]
+        mv_command = "mv #{options[:path]}/#{options[:project]}/data/current #{options[:path]}/#{options[:project]}/data/#{options[:project]}"
+        warn mv_command.blue if options[:debug]
+        unless system mv_command
+            abort "There was a problem moving the current folder. Run using --debug for more information".red
+        end
     end
 else
     puts "-> existing install, running the rsync sequence".green
