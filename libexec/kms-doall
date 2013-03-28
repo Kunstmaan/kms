@@ -1,0 +1,116 @@
+#!/bin/bash
+# Usage: kms doall <projectname> <deployroot> [quick]
+# Summary: For Java projects, cleans the deploy, git pull, compiles and restarts tomcat
+# Help: For Java projects, cleans the deploy, git pull, compiles and restarts tomcat
+
+DATE=`date +'%Y%m%d%H%M%S'`
+DEPLOYROOT=$2
+PROJECTNAME=$1
+TOMCATSHUTDOWNWAIT=10
+
+COL_NORM="$(tput sgr0)"
+COL_RED="$(tput setaf 1)$(tput bold)"
+COL_GREEN="$(tput setaf 2)$(tput bold)"
+
+if [ -z "$1" ] || [ -z "$2" ]; then
+	echo "Usage: ${COL_RED}doall <projectname> <deployroot> [quick]${COL_NORM}"
+	exit 1
+fi
+
+if ! [ -e /usr/bin/ionice ]; then
+	echo "Please install ${COL_RED}schedutils${COL_NORM} before running this command"
+	exit 1
+fi
+
+if [ "$UID" == "0" ]; then
+	echo "${COL_RED}do not run this script as root${COL_NORM}"
+	exit 1
+fi
+
+if [ "`whoami`" != "$PROJECTNAME" ]; then
+	echo "${COL_RED}do not run this script as `whoami`${COL_NORM}"
+	exit 1
+fi
+if [ -z "$3" ]; then
+	cdate=`date +'%Y/%m/%d - %H:%M:%S'`; echo "$cdate - Removing left over files deploy for ${COL_GREEN}$PROJECTNAME${COL_NORM} from the ${COL_GREEN}webapps${COL_NORM} folder"
+	cd ~/tomcat/default/webapps || exit 1
+	rm -Rf new
+	cdate=`date +'%Y/%m/%d - %H:%M:%S'`; echo "$cdate - Removing old deploy for ${COL_GREEN}$PROJECTNAME${COL_NORM} from the ${COL_GREEN}temp${COL_NORM} folder"
+	cd ~/tomcat/default/temp || exit 1
+	rm -Rf old-*
+	cdate=`date +'%Y/%m/%d - %H:%M:%S'`; echo "$cdate - Updating the git checkout for ${COL_GREEN}$PROJECTNAME${COL_NORM}"
+	cd ~/data/$PROJECTNAME || exit 1
+	git pull || exit 1
+	cdate=`date +'%Y/%m/%d - %H:%M:%S'`; echo "$cdate - Use CP to move the files to the ${COL_GREEN}$DEPLOYROOT${COL_NORM} folder"
+	. exports.sh || exit 1
+	mkdir -p ~/tomcat/default/temp/quickapp || exit 1
+	#cp -R ~/data/$PROJECTNAME/WebRoot/* ~/tomcat/default/temp/quickapp || exit 1
+	cdate=`date +'%Y/%m/%d - %H:%M:%S'`; echo "$cdate - Compile the classes for ${COL_GREEN}$PROJECTNAME${COL_NORM}"
+	ant smlcompile || exit 1
+	cdate=`date +'%Y/%m/%d - %H:%M:%S'`; echo "$cdate - Shut down tomcat for ${COL_GREEN}$PROJECTNAME${COL_NORM}"
+	cd ~/tomcat/default/bin || exit 1
+	./shutdown.sh || exit 1
+	cdate=`date +'%Y/%m/%d - %H:%M:%S'`; echo "$cdate - Waiting $TOMCATSHUTDOWNWAIT seconds to complete shut down"
+	COUNTER=0
+	while [ $COUNTER -lt $TOMCATSHUTDOWNWAIT ]; do
+		sleep 1
+		let COUNTER=COUNTER+1
+		JAVA_PID=$(ps -U $PROJECTNAME  | grep java | awk '{print $1}')
+		if [ "$JAVA_PID" != "" ];then
+			echo -n "."
+		else
+			break
+		fi
+	done
+	echo ""
+	cdate=`date +'%Y/%m/%d - %H:%M:%S'`; echo "$cdate - Kill all java processes owned by ${COL_GREEN}$PROJECTNAME${COL_NORM}"
+	killall -9 java
+	cdate=`date +'%Y/%m/%d - %H:%M:%S'`; echo "$cdate - Move the ${COL_GREEN}$DEPLOYROOT${COL_NORM} folder to ${COL_GREEN}old-$DATE${COL_NORM}"
+	cd ~/tomcat/default/webapps || exit 1
+	mv $DEPLOYROOT ../temp/old-$DATE || exit 1
+	cdate=`date +'%Y/%m/%d - %H:%M:%S'`; echo "$cdate - Move the ${COL_GREEN}quickapp${COL_NORM} folder to ${COL_GREEN}$DEPLOYROOT${COL_NORM}"
+	mv ../temp/quickapp $DEPLOYROOT || exit 1
+	cdate=`date +'%Y/%m/%d - %H:%M:%S'`; echo "$cdate - Removing left over files deploy for ${COL_GREEN}$PROJECTNAME${COL_NORM} from the ${COL_GREEN}webapps${COL_NORM} folder"
+	cd ~/tomcat/default/webapps || exit 1
+	rm -Rf new
+	cdate=`date +'%Y/%m/%d - %H:%M:%S'`; echo "$cdate - Start tomcat for ${COL_GREEN}$PROJECTNAME${COL_NORM}"
+	cd ~/tomcat/default/bin/ || exit 1
+	./startup.sh || exit 1
+	cdate=`date +'%Y/%m/%d - %H:%M:%S'`; echo "$cdate - Removing old deploy for ${COL_GREEN}$PROJECTNAME${COL_NORM} from the ${COL_GREEN}temp${COL_NORM} folder"
+	cd ~/tomcat/default/temp || exit 1
+	ionice -c2 -n7 rm -Rf old-*
+	cdate=`date +'%Y/%m/%d - %H:%M:%S'`; echo "$cdate - ${COL_GREEN}Done${COL_NORM}"
+else
+	cdate=`date +'%Y/%m/%d - %H:%M:%S'`; echo "$cdate - Updating the git checkout for ${COL_GREEN}$PROJECTNAME${COL_NORM}"
+	git pull || exit 1
+	cd || exit 1
+	cd data/$PROJECTNAME || exit 1
+	cdate=`date +'%Y/%m/%d - %H:%M:%S'`; echo "$cdate - Compile the classes for ${COL_GREEN}$PROJECTNAME${COL_NORM}"
+	. exports.sh || exit 1
+	ant compile || exit 1
+        cdate=`date +'%Y/%m/%d - %H:%M:%S'`; echo "$cdate - Shut down tomcat for ${COL_GREEN}$PROJECTNAME${COL_NORM}"
+        cd ~/tomcat/default/bin || exit 1
+        ./shutdown.sh || exit 1
+	cdate=`date +'%Y/%m/%d - %H:%M:%S'`; echo "$cdate - Waiting $TOMCATSHUTDOWNWAIT seconds to complete shut down"
+        COUNTER=0
+        while [ $COUNTER -lt $TOMCATSHUTDOWNWAIT ]; do
+                sleep 1
+                let COUNTER=COUNTER+1
+                JAVA_PID=$(ps -U $PROJECTNAME  | grep java | awk '{print $1}')
+                if [ "$JAVA_PID" != "" ];then
+                        echo -n "."
+                else
+                        break
+                fi
+        done
+        echo ""
+	cdate=`date +'%Y/%m/%d - %H:%M:%S'`; echo "$cdate - Kill all java processes owned by ${COL_GREEN}$PROJECTNAME${COL_NORM}"
+	killall -9 java
+	cdate=`date +'%Y/%m/%d - %H:%M:%S'`; echo "$cdate - Start tomcat for ${COL_GREEN}$PROJECTNAME${COL_NORM}"
+	cd || exit 1
+	cd tomcat/default/bin/ || exit 1
+	./startup.sh
+	cdate=`date +'%Y/%m/%d - %H:%M:%S'`; echo "$cdate - ${COL_GREEN}Done${COL_NORM}"
+fi
+
+exit 0

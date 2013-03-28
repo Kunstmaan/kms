@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Usage: kms webtop
+# Summary: Shows the current apache requests
+# Help: Shows the current apache requests
+
+set -e
+
+if [ "$1" != "s" ]; then
+	watch "lynx -width=600 -dump http://localhost/server-status | grep -ie ' W '  | awk '{print \$12 \$14}' | sort | uniq -c | sort -nr"
+else
+	watch "lynx -width=600 -dump http://localhost/server-status | grep -ie ' W '"
+fi
