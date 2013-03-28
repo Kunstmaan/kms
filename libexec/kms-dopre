@@ -1,0 +1,26 @@
+#!/bin/bash
+# Usage: kms dopre <projectname>
+# Summary: For Java projects, does git pull and ant prepare
+# Help: For Java projects, does git pull and ant prepare
+
+PROJECTNAME=$1
+
+COL_NORM="$(tput sgr0)"
+COL_RED="$(tput setaf 1)$(tput bold)"
+
+if [ -z "$1" ]; then
+	echo "Usage: ${COL_RED}dopre <projectname>${COL_NORM}"
+	exit 1
+fi
+
+cdate=`date +'%Y/%m/%d - %H:%M:%S'`; echo "$cdate - Updating the git checkout for ${COL_GREEN}$PROJECTNAME${COL_NORM}"
+export CLASSPATH=$CLASSPATH:/home/projects/$PROJECTNAME/tomcat/default/lib/catalina-ant.jar || exit 1
+export JAVA_HOME=/opt/jdk/default || exit 1
+export PATH=$PATH:/opt/ant/bin || exit 1
+cd /home/projects/$PROJECTNAME/data/$PROJECTNAME || exit 1
+git pull || exit 1
+cdate=`date +'%Y/%m/%d - %H:%M:%S'`; echo "$cdate - Prepare the files for ${COL_GREEN}$PROJECTNAME${COL_NORM}"
+ant prepare || exit 1
+cdate=`date +'%Y/%m/%d - %H:%M:%S'`; echo "$cdate - ${COL_GREEN}Done${COL_NORM}"
+
+exit 0

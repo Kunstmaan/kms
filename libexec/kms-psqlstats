@@ -1,0 +1,24 @@
+#!/bin/bash
+# Usage: kms psqlstats <dbname>
+# Summary: Shows the total dbsize and the tables
+# Help: Shows the total dbsize and the tables
+
+function emit_sql {
+		echo "SELECT pg_size_pretty(pg_database_size('$1')) as dbsize;"
+		echo "SELECT tablename, pg_size_pretty(pg_relation_size(pg_class.oid)) as size FROM pg_tables inner join pg_class on relname = tablename where tableowner = '$1'  ORDER BY pg_relation_size(pg_class.oid) DESC LIMIT 15;"
+		echo "SELECT indexname, pg_size_pretty(pg_relation_size(pg_class.oid)) as size FROM pg_indexes inner join pg_class on relname = indexname where schemaname = 'public' ORDER BY pg_relation_size(pg_class.oid) DESC LIMIT 10;" 
+		echo "SELECT relname as tablename, n_live_tup as amount FROM pg_stat_all_tables WHERE schemaname = 'public' ORDER BY n_live_tup DESC LIMIT 10;"
+	}
+
+if [ -z $1 ]; then
+    echo "Please specify the database name (type quit/q to exit)"
+    read dbname
+    if [[ $dbname == "quit" || $dbname == "q" || $dbname = "" ]]; then
+            exit 0
+    fi
+else
+    dbname=$1
+fi
+
+export PGPASSWORD=$dbname
+emit_sql $dbname | psql -U $dbname $dbname
