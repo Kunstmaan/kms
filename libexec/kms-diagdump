@@ -1,0 +1,44 @@
+#!/bin/bash
+# Usage: kms diagdump <projectname>
+# Summary: Shows a stack trace of the project <projectname>
+# Help: Shows a stack trace of the project <projectname>
+
+PROJECTNAME=$1
+
+if [ "$PROJECTNAME" = "" ]; then
+	echo "usage: kms diagdump <projectname>"
+	exit 1
+fi
+
+if [[ ${EUID} == 0 ]] ; then
+
+	JAVA_PID=$(ps -U $PROJECTNAME  | grep java | awk '{print $1}')
+
+	echo "the PID of the tomcat of $PROJECTNAME is $JAVA_PID"
+	echo "signalling to obtain stack trace ..."
+	kill -3 $JAVA_PID
+	echo "generating heap dump ..."
+
+	if [ "$JAVA_HOME" = "" ]; then
+		export JAVA_HOME=/opt/jdk/default
+	fi
+	NOW=$(date +"%d-%m-%Y-%H-%M-%S")
+	HEAPDUMP_FILE="/tmp/heapdump-$PROJECTNAME-PID$JAVA_PID-$NOW.dump"
+	ZIPFILE="/root/debug-$PROJECTNAME-PID$JAVA_PID-$NOW.tar.gz"
+	STAT_ACTIVITY_FILE="/tmp/psql-runningqueries-$NOW.txt"
+	sudo -u postgres psql -c 'select * from pg_stat_activity' > $STAT_ACTIVITY_FILE
+	sudo -u $PROJECTNAME $JAVA_HOME/bin/jmap -F -dump:format=b,file=$HEAPDUMP_FILE $JAVA_PID
+	if [ $? -ne 0 ]
+	then
+	  sudo -u $PROJECTNAME $JAVA_HOME/bin/jmap -dump:format=b,file=$HEAPDUMP_FILE $JAVA_PID
+	fi
+	CATALINA_OUT=/home/projects/$PROJECTNAME/tomcat/default/logs/catalina.out
+
+	tar -cf $ZIPFILE -z $CATALINA_OUT $HEAPDUMP_FILE $STAT_ACTIVITY_FILE
+	echo debug info can be found in $ZIPFILE
+
+else
+	echo "run as root!"
+	exit 1
+
+fi

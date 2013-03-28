@@ -1,0 +1,81 @@
+#!/usr/bin/perl
+# Usage: kms pstats
+# Summary: Shows the number of sleeping, waiting and running processes
+# Help: Shows the number of sleeping, waiting and running processes
+
+use strict;
+use warnings;
+
+# copyright frank dekervel
+
+
+my $interval = $ARGV[0];
+if (!defined($interval)) {
+	$interval=2;
+}
+
+my $xvs = $ARGV[1];
+if (defined($xvs)) {
+	$xvs=1;
+} else {
+	$xvs=0;
+}
+
+sub getqstatus {
+	my %status;
+	my %statusn;
+	$status{"S"}=0;
+	$status{"D"}=0;
+	$status{"R"}=0;
+	$statusn{"D"}="";
+	$statusn{"R"}="";
+	opendir DIR, "/proc";
+	while (my $pid = readdir(DIR)) {
+		if ($pid !~ /^[0-9]+$/) {
+			next;
+		}
+		open PFILE, "/proc/$pid/stat";
+		my $stat = <PFILE>;
+		close PFILE;
+		#chop $stat;
+		my @stats = split /\s+/, $stat;
+		my $sname=$stats[2];
+		$status{$sname}++;
+		my $var = $statusn{$sname};
+		if (defined($var)) {
+			my $name = $stats[1];
+			$name =~ s/^\(//;
+			$name =~ s/\)$//;
+			$var.=$name."[".$pid."] ";
+			$statusn{$sname}=$var;
+		}
+	}
+	closedir DIR;
+	return (\%status,\%statusn);
+}
+my $counter=0;
+
+$|=1;
+while (1) {
+	if ($counter==0 && !$xvs) {
+		print("\nSLEEPING\tWAITING\tRUNNING\n");
+	}
+	if ($counter>20) {
+		$counter=0;
+	}
+	$counter++;
+	print ("...");
+	my ($status,$statusn)=getqstatus();
+	print ("\r       \r");
+	if ($xvs) {
+		print($status->{"S"}. "\t\t" . $status->{"D"} . "(" . $statusn->{"D"}. ")". "\t" . $status->{"R"}  . "(" . $statusn->{"R"}.  ")\n");
+	} else { 
+		print($status->{"S"}. "\t\t" . $status->{"D"} . "\t" . $status->{"R"} . "\n");
+	}
+	sleep($interval);
+}
+
+#my($k,$v);
+#while (($k,$v) =  each (%status)) {
+#	print "$k $v\n";
+#}
