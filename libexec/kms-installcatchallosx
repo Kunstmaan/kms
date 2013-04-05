@@ -1,0 +1,54 @@
+brew install dovecot
+cp -R /usr/local/Cellar/dovecot/2.1.10/share/doc/dovecot/example-config/* /usr/local/etc/dovecot/
+cat << END > /etc/postfix/virtual
+/.*@.*/ allemail
+END
+
+cat << END > /Library/LaunchDaemons/homebrew.mxcl.dovecot.plist
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+        <key>Label</key>
+        <string>homebrew.mxcl.dovecot</string>
+        <key>OnDemand</key>
+        <false/>
+        <key>ProgramArguments</key>
+        <array>
+                <string>/usr/local/sbin/dovecot</string>
+                <string>-F</string>
+        </array>
+        <key>RunAtLoad</key>
+        <true/>
+        <key>ServiceDescription</key>
+        <string>Dovecot mail server</string>
+</dict>
+</plist>
+END
+
+function emit_maincf {
+    cat /etc/postfix/main.cf | egrep -v ^relayhost | egrep -v ^mynetworks | egrep -v ^inet_interfaces
+    echo "mynetworks = 0.0.0.0/0"
+    echo "virtual_alias_maps = pcre:/etc/postfix/virtual"
+    echo "home_mailbox = Maildir/"
+    echo "inet_interfaces = all"
+}
+
+emit_maincf > /tmp/main.cf
+mv /tmp/main.cf /etc/postfix
+
+function emit_dovecotcf {
+    cat /usr/local/etc/dovecot/dovecot.conf | egrep -v "mail_location" | egrep -v "disable_plaintext_auth"
+    echo "mail_location = maildir:~/Maildir"
+    echo "disable_plaintext_auth = no"
+}
+
+emit_dovecotcf > /tmp/dovecot.conf
+mv /tmp/dovecot.conf /usr/local/etc/dovecot
+
+dscl . -create /Users/allemail
+dscl . -create /Users/allemail RealName "Kunstmaan allemail"
+dscl . -create /Users/allemail UniqueID 498 # Use something between 100 and 500 to hide the user
+dscl . -passwd /Users/allemail "allemail" # Obviously, use something else here
+
+sudo launchctl load /Library/LaunchDaemons/homebrew.mxcl.dovecot.plist
