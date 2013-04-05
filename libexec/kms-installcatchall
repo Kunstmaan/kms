@@ -7,8 +7,7 @@ set -e
 
 echo "this will install a catchall server"
 echo "do not run this on a live machine"
-MYFOLDER=$(dirname $0)
-SRCFOLDER=$MYFOLDER/../tools/
+SRCFOLDER=/opt/kDeploy/tools
 CONFIGXML=$SRCFOLDER/config.xml
 PWSETTER=$SRCFOLDER/passwdnonint
 
