@@ -1,5 +1,5 @@
 #!/usr/bin/env ruby
-# Usage: kms fetch -p projectname -s server [--java|-j] [--debug|-d]
+# Usage: kms fetch -p projectname -s server [--user|-u user] [--java|-j] [--debug|-d]
 # Summary: Fetches a project from a server
 # Help: This will fetch a project from a server and set it up on your computer.
 
@@ -7,6 +7,7 @@ unless system("(gem spec colored -v '~> 1.2' > /dev/null 2>&1) || gem install co
     abort "Failed to install colored"
 end
 
+require "rubygems"
 require "colored"
 require "pathname"
 
@@ -49,6 +50,10 @@ OptionParser.new do |opts|
         options[:debug] = debug
     end
 
+    opts.on("-u", "--user USER", "The user you want to use to connect to the server") do |user|
+        options[:user] = user
+    end
+
     opts.separator ""
     opts.separator "Common options:"
 
@@ -73,13 +78,19 @@ options[:update] = File.exists?("/home/projects/#{options[:project]}")
 
 excludes = [ ".composer", "apachelogs/*", "resizedcache/*", "nobackup/*", "tmp/*", ".viminfo", ".ssh", ".bash_history", ".config", ".mysql_history", "data/current/app/logs/*", "data/current/app/cache/*" ]
 
+unless options[:user]
+    ssh_user = ENV["USER"]
+else
+    ssh_user = options[:user]
+end
+
 unless options[:update]
     puts "-> new install, running the tar sequence".green
     initial_excludes = excludes + [ "data/shared", "data/releases"]
     unless options[:java]
         initial_excludes << "data/#{options[:project]}"
     end
-    cmd_ssh = "ssh #{ENV["USER"]}@#{options[:server]}"
+    cmd_ssh = "ssh #{ssh_user}@#{options[:server]}"
     cmd_correct_dir = "cd #{options[:path]}/"
     initial_du_excludes_string = ""
     initial_excludes.each do |exclude|
@@ -95,7 +106,7 @@ unless options[:update]
     end
     cmd_progress = "pv -p -e -a -s #{size}k"
     cmd_extract_tar = "tar xf -"
-    cmd_transfer = "#{cmd_correct_dir}; #{cmd_ssh} '#{cmd_correct_dir}; #{cmd_create_tar}' | #{cmd_progress} | #{cmd_extract_tar}"
+    cmd_transfer = "#{cmd_correct_dir}; #{cmd_ssh} '#{cmd_correct_dir}; #{cmd_create_tar}' | #{cmd_extract_tar}"
     warn cmd_transfer.blue if options[:debug]
     unless system cmd_transfer
         abort "There was a problem transferring the project. Run using --debug for more information".red
@@ -115,7 +126,7 @@ else
         rsync_command << "--exclude=#{rsync_exclude}"
     end
     rsync_command << "--progress" if options[:debug]
-    rsync_command << "#{ENV["USER"]}@#{options[:server]}:/home/projects/#{options[:project]}"
+    rsync_command << "#{ssh_user}@#{options[:server]}:/home/projects/#{options[:project]}"
     rsync_command << options[:path]
     warn rsync_command.join(" ").blue if options[:debug]
     unless system *rsync_command
@@ -127,7 +138,7 @@ else
             rsync_command << "--exclude=#{rsync_exclude}"
         end
         rsync_command << "--progress" if options[:debug]
-        rsync_command << "#{ENV["USER"]}@#{options[:server]}:/home/projects/#{options[:project]}/data/shared/web/*"
+        rsync_command << "#{ssh_user}@#{options[:server]}:/home/projects/#{options[:project]}/data/shared/web/*"
         rsync_command << "#{options[:path]}#{options[:project]}/data/#{options[:project]}/web/"
         warn rsync_command.join(" ").blue if options[:debug]
         unless system *rsync_command
