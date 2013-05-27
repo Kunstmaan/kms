@@ -121,7 +121,7 @@ unless options[:update]
 else
     puts "-> existing install, running the rsync sequence".green
     update_excludes = excludes + [ "data/*" ]
-    rsync_command = [ "rsync",  "-rtDhz", "--copy-links"]
+    rsync_command = [ "rsync",  "-rDhz", "--copy-links"]
     update_excludes.each do |rsync_exclude|
         rsync_command << "--exclude=#{rsync_exclude}"
     end
@@ -133,7 +133,7 @@ else
         warn "There was a problem running rsync. Run using --debug for more information".red
     end
     if File.exist?("#{options[:path]}#{options[:project]}/data/#{options[:project]}/web/")
-        rsync_command = [ "rsync",  "-rltDhz"]
+        rsync_command = [ "rsync",  "-rlDhz"]
         update_excludes.each do |rsync_exclude|
             rsync_command << "--exclude=#{rsync_exclude}"
         end
