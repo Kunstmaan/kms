@@ -4,7 +4,9 @@
 # Help: This will fetch a project from a server and set it up on your computer.
 
 unless system("(gem spec colored -v '~> 1.2' > /dev/null 2>&1) || gem install colored --no-rdoc --no-ri")
-    abort "Failed to install colored"
+    unless system("(gem spec colored -v '~> 1.2' > /dev/null 2>&1) || sudo gem install colored --no-rdoc --no-ri")
+        abort "Failed to install colored"
+    end
 end
 
 require "rubygems"
