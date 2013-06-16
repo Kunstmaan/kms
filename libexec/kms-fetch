@@ -108,7 +108,7 @@ unless options[:update]
     end
     cmd_progress = "pv -p -e -a -s #{size}k"
     cmd_extract_tar = "tar xf -"
-    cmd_transfer = "#{cmd_correct_dir}; #{cmd_ssh} '#{cmd_correct_dir}; #{cmd_create_tar}' | #{cmd_extract_tar}"
+    cmd_transfer = "#{cmd_correct_dir}; #{cmd_ssh} '#{cmd_correct_dir}; #{cmd_create_tar}' | #{cmd_progress} | #{cmd_extract_tar}"
     warn cmd_transfer.blue if options[:debug]
     unless system cmd_transfer
         abort "There was a problem transferring the project. Run using --debug for more information".red
@@ -139,7 +139,7 @@ else
         update_excludes.each do |rsync_exclude|
             rsync_command << "--exclude=#{rsync_exclude}"
         end
-        rsync_command << "--progress" if options[:debug]
+        rsync_command << "--progress"
         rsync_command << "#{ssh_user}@#{options[:server]}:/home/projects/#{options[:project]}/data/shared/web/*"
         rsync_command << "#{options[:path]}#{options[:project]}/data/#{options[:project]}/web/"
         warn rsync_command.join(" ").blue if options[:debug]
