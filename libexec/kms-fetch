@@ -147,6 +147,20 @@ else
             warn "There was a problem running rsync. Run using --debug for more information".red
         end
     end
+    # Drupal sites...
+    if File.exist?("#{options[:path]}#{options[:project]}/data/#{options[:project]}/sites/default/files/")
+        rsync_command = [ "rsync",  "-rlDhz"]
+        update_excludes.each do |rsync_exclude|
+            rsync_command << "--exclude=#{rsync_exclude}"
+        end
+        rsync_command << "--progress"
+        rsync_command << "#{ssh_user}@#{options[:server]}:/home/projects/#{options[:project]}/data/shared/sites/default/files/*"
+        rsync_command << "#{options[:path]}#{options[:project]}/data/#{options[:project]}/sites/default/files/"
+        warn rsync_command.join(" ").blue if options[:debug]
+        unless system *rsync_command
+            warn "There was a problem running rsync. Run using --debug for more information".red
+        end
+    end
 end
 
 puts "-> drop the databases".green
