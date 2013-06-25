@@ -10,8 +10,8 @@ cat << 'EOF' > $1/Vagrantfile
 # vi: set ft=ruby :
 
 Vagrant::Config.run do |config|
-  config.vm.box = "kdeploy-quantal32"
-  config.vm.box_url = "http://vagrant.kunstmaan.be/kdeploy-quantal32.box"
+  config.vm.box = "quantal64"
+  config.vm.box_url = "http://vagrant.kunstmaan.be/quantal64.box"
   PROJECT=File.basename(File.dirname(__FILE__)).gsub(/\s+/, "").downcase # or customize by hand!
   config.vm.share_folder("data", "/home/projects/#{PROJECT}", ".", :nfs => true, :extra => 'dmode=777,fmode=777')
   config.vm.customize ["modifyvm", :id, "--memory", 1024]
