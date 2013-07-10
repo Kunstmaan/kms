@@ -5,8 +5,6 @@
 #
 #       Example for the vagrant box: kms installkd /opt/kDeploy vagrant
 
-set -e
-
 export DEBIAN_FRONTEND=noninteractive
 export INSTALLBASE=$1
 export MYSQLROOTPASSWD=$2
