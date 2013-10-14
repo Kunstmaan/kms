@@ -92,26 +92,16 @@ unless options[:update]
     unless options[:java]
         initial_excludes << "data/#{options[:project]}"
     end
-    cmd_ssh = "ssh #{ssh_user}@#{options[:server]}"
-    cmd_correct_dir = "cd #{options[:path]}/"
-    initial_du_excludes_string = ""
-    initial_excludes.each do |exclude|
-         initial_du_excludes_string << "--exclude=\"#{exclude}\" "
+    rsync_command = [ "rsync",  "-rDhz", "--copy-links", "--compress"]
+    initial_excludes.each do |rsync_exclude|
+        rsync_command << "--exclude=#{rsync_exclude}"
     end
-    cmd_find_size = "du -sLk #{initial_du_excludes_string} #{options[:project]} | cut -f 1"
-    cmd_remote_file_size = "#{cmd_ssh} '#{cmd_correct_dir}; #{cmd_find_size}'"
-    warn cmd_remote_file_size.blue if options[:debug]
-    size = `#{cmd_remote_file_size}`.strip
-    cmd_create_tar = "tar chf - #{options[:project]}"
-    initial_excludes.each do |tar_exclude|
-         cmd_create_tar << " --exclude=\"#{options[:project]}/#{tar_exclude}\""
-    end
-    cmd_progress = "pv -p -e -a -s #{size}k"
-    cmd_extract_tar = "tar xf -"
-    cmd_transfer = "#{cmd_correct_dir}; #{cmd_ssh} '#{cmd_correct_dir}; #{cmd_create_tar}' | #{cmd_progress} | #{cmd_extract_tar}"
-    warn cmd_transfer.blue if options[:debug]
-    unless system cmd_transfer
-        abort "There was a problem transferring the project. Run using --debug for more information".red
+    rsync_command << "--progress"
+    rsync_command << "#{ssh_user}@#{options[:server]}:/home/projects/#{options[:project]}"
+    rsync_command << options[:path]
+    warn rsync_command.join(" ").blue if options[:debug]
+    unless system *rsync_command
+        warn "There was a problem running rsync. Run using --debug for more information".red
     end
     unless options[:java]
         mv_command = "mv #{options[:path]}/#{options[:project]}/data/current #{options[:path]}/#{options[:project]}/data/#{options[:project]}"
@@ -127,7 +117,7 @@ else
     update_excludes.each do |rsync_exclude|
         rsync_command << "--exclude=#{rsync_exclude}"
     end
-    rsync_command << "--progress" if options[:debug]
+    rsync_command << "--progress"
     rsync_command << "#{ssh_user}@#{options[:server]}:/home/projects/#{options[:project]}"
     rsync_command << options[:path]
     warn rsync_command.join(" ").blue if options[:debug]
