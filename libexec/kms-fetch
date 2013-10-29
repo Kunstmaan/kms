@@ -87,7 +87,7 @@ else
 end
 
 unless options[:update]
-    puts "-> new install, running the tar sequence".green
+    puts "-> new install, running the full rsync sequence".green
     initial_excludes = excludes + [ "data/shared", "data/releases"]
     unless options[:java]
         initial_excludes << "data/#{options[:project]}"
