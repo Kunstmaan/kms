@@ -143,8 +143,8 @@ else
             rsync_command << "--exclude=#{rsync_exclude}"
         end
         rsync_command << "--progress"
-        rsync_command << "#{ssh_user}@#{options[:server]}:/home/projects/#{options[:project]}/data/shared/web/*"
-        rsync_command << "#{options[:path]}#{options[:project]}/data/current/web/"
+        rsync_command << "#{ssh_user}@#{options[:server]}:/home/projects/#{options[:project]}/data/shared/web/uploads/media/*"
+        rsync_command << "#{options[:path]}#{options[:project]}/data/#{options[:project]}/web/uploads/media/"
         warn rsync_command.join(" ").blue if options[:debug]
         unless system *rsync_command
             warn "There was a problem running rsync. Run using --debug for more information".red
