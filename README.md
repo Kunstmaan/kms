@@ -13,3 +13,5 @@ sudo /opt/kms/libexec/kms-installkd /opt/kms/share/kms/installkd/ mysqlrootpassw
 install kDeploy:
 ================
 see https://github.com/Kunstmaan/kDeploy#ubuntu
+
+[![Analytics](https://ga-beacon.appspot.com/UA-3160735-7/Kunstmaan/kms)](https://github.com/igrigorik/ga-beacon)
