@@ -78,7 +78,7 @@ end
 options[:path] = `xmlstarlet sel -t -v "/config/var[@name='config.projectsdir']/@value" /opt/kDeploy/tools/config.xml`.strip
 options[:update] = File.exists?("/home/projects/#{options[:project]}")
 
-excludes = [ ".composer", "apachelogs/*", "resizedcache/*", "nobackup/*", "tmp/*", ".viminfo", ".ssh", ".bash_history", ".config", ".mysql_history", "data/current/app/logs/*", "data/current/app/cache/*" ]
+excludes = [ ".composer", "apachelogs/*", "resizedcache/*", "uploadcache/*", "nobackup/*", "tmp/*", ".viminfo", ".ssh", ".bash_history", ".config", ".mysql_history", "data/current/app/logs/*", "data/current/app/cache/*" ]
 
 unless options[:user]
     ssh_user = ENV["USER"]
