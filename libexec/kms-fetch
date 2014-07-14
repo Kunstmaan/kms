@@ -92,7 +92,7 @@ unless options[:update]
     unless options[:java]
         initial_excludes << "data/#{options[:project]}"
     end
-    rsync_command = [ "rsync",  "-rDhz", "--copy-links", "--compress"]
+    rsync_command = [ "rsync",  "-rDhz", "--copy-links"]
     initial_excludes.each do |rsync_exclude|
         rsync_command << "--exclude=#{rsync_exclude}"
     end
